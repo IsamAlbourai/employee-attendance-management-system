@@ -1,5 +1,6 @@
 package com.example.attendance.controller;
 
+import com.example.attendance.dto.AttendanceCheckOutResult;
 import com.example.attendance.dto.AttendanceResponse;
 import com.example.attendance.entity.Attendance;
 import com.example.attendance.service.AttendanceService;
@@ -35,18 +36,26 @@ public class AttendanceController {
                         attendance.getUser().getEmail(),
                         attendance.getWorkDate(),
                         attendance.getCheckInTime(),
-                        attendance.getCheckOutTime()
+                        attendance.getCheckOutTime(),
+                        null,
+                        null,
+                        null,
+                        null
                 );
 
         return ResponseEntity.ok(response);
     }
+
     @PostMapping("/check-out")
     public ResponseEntity<AttendanceResponse> checkOut(
             Authentication authentication
     ) {
 
-        Attendance attendance =
+        AttendanceCheckOutResult result =
                 attendanceService.checkOut(authentication);
+
+        Attendance attendance =
+                result.getAttendance();
 
         AttendanceResponse response =
                 new AttendanceResponse(
@@ -56,7 +65,11 @@ public class AttendanceController {
                         attendance.getUser().getEmail(),
                         attendance.getWorkDate(),
                         attendance.getCheckInTime(),
-                        attendance.getCheckOutTime()
+                        attendance.getCheckOutTime(),
+                        result.getWorkedMinutes(),
+                        result.getRequiredMinutes(),
+                        result.getDifferenceMinutes(),
+                        result.getStatus()
                 );
 
         return ResponseEntity.ok(response);

@@ -17,4 +17,9 @@ public class AttendanceResponse {
     private LocalDate workDate;
     private LocalDateTime checkInTime;
     private LocalDateTime checkOutTime;
+
+    private Long workedMinutes;
+    private Integer requiredMinutes;
+    private Long differenceMinutes;
+    private String status;
 }

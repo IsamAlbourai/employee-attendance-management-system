@@ -1,12 +1,16 @@
 package com.example.attendance.service;
 
+import com.example.attendance.dto.AttendanceCheckOutResult;
 import com.example.attendance.entity.Attendance;
 import com.example.attendance.entity.User;
+import com.example.attendance.entity.WorkSchedule;
 import com.example.attendance.repository.AttendanceRepository;
 import com.example.attendance.repository.UserRepository;
+import com.example.attendance.repository.WorkScheduleRepository;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -15,13 +19,16 @@ public class AttendanceService {
 
     private final AttendanceRepository attendanceRepository;
     private final UserRepository userRepository;
+    private final WorkScheduleRepository workScheduleRepository;
 
     public AttendanceService(
             AttendanceRepository attendanceRepository,
-            UserRepository userRepository
+            UserRepository userRepository,
+            WorkScheduleRepository workScheduleRepository
     ) {
         this.attendanceRepository = attendanceRepository;
         this.userRepository = userRepository;
+        this.workScheduleRepository = workScheduleRepository;
     }
 
     public Attendance checkIn(Authentication authentication) {
@@ -49,7 +56,10 @@ public class AttendanceService {
 
         return attendanceRepository.save(attendance);
     }
-    public Attendance checkOut(Authentication authentication) {
+
+    public AttendanceCheckOutResult checkOut(
+            Authentication authentication
+    ) {
 
         String email = authentication.getName();
 
@@ -69,6 +79,40 @@ public class AttendanceService {
 
         attendance.setCheckOutTime(LocalDateTime.now());
 
-        return attendanceRepository.save(attendance);
+        long workedMinutes =
+                Duration.between(
+                        attendance.getCheckInTime(),
+                        attendance.getCheckOutTime()
+                ).toMinutes();
+
+        WorkSchedule workSchedule =
+                workScheduleRepository.findByUserId(user.getId())
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "Work schedule not found for this user"
+                                )
+                        );
+
+        int requiredMinutes =
+                workSchedule.getRequiredMinutes();
+
+        long differenceMinutes =
+                workedMinutes - requiredMinutes;
+
+        String status =
+                workedMinutes >= requiredMinutes
+                        ? "COMPLETED"
+                        : "INCOMPLETE";
+
+        Attendance savedAttendance =
+                attendanceRepository.save(attendance);
+
+        return new AttendanceCheckOutResult(
+                savedAttendance,
+                workedMinutes,
+                requiredMinutes,
+                differenceMinutes,
+                status
+        );
     }
 }
