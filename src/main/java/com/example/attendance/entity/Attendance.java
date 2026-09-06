@@ -33,4 +33,16 @@ public class Attendance {
     private LocalDateTime checkInTime;
 
     private LocalDateTime checkOutTime;
+
+    @Column
+    private Long workedMinutes;
+
+    @Column
+    private Integer requiredMinutes;
+
+    @Column
+    private Long differenceMinutes;
+
+    @Column
+    private String status;
 }

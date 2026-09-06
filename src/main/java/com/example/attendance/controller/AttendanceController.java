@@ -7,6 +7,7 @@ import com.example.attendance.service.AttendanceService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/attendance")
@@ -71,6 +72,35 @@ public class AttendanceController {
                         result.getDifferenceMinutes(),
                         result.getStatus()
                 );
+
+        return ResponseEntity.ok(response);
+    }
+    @GetMapping("/history")
+    public ResponseEntity<List<AttendanceResponse>> getMyAttendanceHistory(
+            Authentication authentication
+    ) {
+
+        List<Attendance> attendanceHistory =
+                attendanceService.getMyAttendanceHistory(authentication);
+
+        List<AttendanceResponse> response =
+                attendanceHistory.stream()
+                        .map(attendance ->
+                                new AttendanceResponse(
+                                        attendance.getId(),
+                                        attendance.getUser().getId(),
+                                        attendance.getUser().getName(),
+                                        attendance.getUser().getEmail(),
+                                        attendance.getWorkDate(),
+                                        attendance.getCheckInTime(),
+                                        attendance.getCheckOutTime(),
+                                        attendance.getWorkedMinutes(),
+                                        attendance.getRequiredMinutes(),
+                                        attendance.getDifferenceMinutes(),
+                                        attendance.getStatus()
+                                )
+                        )
+                        .toList();
 
         return ResponseEntity.ok(response);
     }

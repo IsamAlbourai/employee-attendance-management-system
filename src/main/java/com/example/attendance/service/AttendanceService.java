@@ -104,6 +104,11 @@ public class AttendanceService {
                         ? "COMPLETED"
                         : "INCOMPLETE";
 
+        attendance.setWorkedMinutes(workedMinutes);
+        attendance.setRequiredMinutes(requiredMinutes);
+        attendance.setDifferenceMinutes(differenceMinutes);
+        attendance.setStatus(status);
+
         Attendance savedAttendance =
                 attendanceRepository.save(attendance);
 
@@ -114,5 +119,19 @@ public class AttendanceService {
                 differenceMinutes,
                 status
         );
+    }
+    public java.util.List<Attendance> getMyAttendanceHistory(
+            Authentication authentication
+    ) {
+
+        String email = authentication.getName();
+
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() ->
+                        new IllegalArgumentException("User not found")
+                );
+
+        return attendanceRepository
+                .findAllByUserOrderByCheckInTimeDesc(user);
     }
 }
