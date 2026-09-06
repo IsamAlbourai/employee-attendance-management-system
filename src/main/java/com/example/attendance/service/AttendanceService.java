@@ -4,6 +4,8 @@ import com.example.attendance.dto.AttendanceCheckOutResult;
 import com.example.attendance.entity.Attendance;
 import com.example.attendance.entity.User;
 import com.example.attendance.entity.WorkSchedule;
+import com.example.attendance.exception.ConflictException;
+import com.example.attendance.exception.ResourceNotFoundException;
 import com.example.attendance.repository.AttendanceRepository;
 import com.example.attendance.repository.UserRepository;
 import com.example.attendance.repository.WorkScheduleRepository;
@@ -13,6 +15,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 public class AttendanceService {
@@ -37,13 +40,15 @@ public class AttendanceService {
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() ->
-                        new IllegalArgumentException("User not found")
+                        new ResourceNotFoundException(
+                                "User not found"
+                        )
                 );
 
         attendanceRepository
                 .findByUserAndCheckOutTimeIsNull(user)
                 .ifPresent(attendance -> {
-                    throw new IllegalArgumentException(
+                    throw new ConflictException(
                             "Employee is already checked in"
                     );
                 });
@@ -65,15 +70,26 @@ public class AttendanceService {
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() ->
-                        new IllegalArgumentException("User not found")
+                        new ResourceNotFoundException(
+                                "User not found"
+                        )
                 );
 
         Attendance attendance =
                 attendanceRepository
                         .findByUserAndCheckOutTimeIsNull(user)
                         .orElseThrow(() ->
-                                new IllegalArgumentException(
+                                new ConflictException(
                                         "Employee is not currently checked in"
+                                )
+                        );
+
+        WorkSchedule workSchedule =
+                workScheduleRepository
+                        .findByUserId(user.getId())
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Work schedule not found for this user"
                                 )
                         );
 
@@ -84,14 +100,6 @@ public class AttendanceService {
                         attendance.getCheckInTime(),
                         attendance.getCheckOutTime()
                 ).toMinutes();
-
-        WorkSchedule workSchedule =
-                workScheduleRepository.findByUserId(user.getId())
-                        .orElseThrow(() ->
-                                new IllegalArgumentException(
-                                        "Work schedule not found for this user"
-                                )
-                        );
 
         int requiredMinutes =
                 workSchedule.getRequiredMinutes();
@@ -120,7 +128,8 @@ public class AttendanceService {
                 status
         );
     }
-    public java.util.List<Attendance> getMyAttendanceHistory(
+
+    public List<Attendance> getMyAttendanceHistory(
             Authentication authentication
     ) {
 
@@ -128,7 +137,9 @@ public class AttendanceService {
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() ->
-                        new IllegalArgumentException("User not found")
+                        new ResourceNotFoundException(
+                                "User not found"
+                        )
                 );
 
         return attendanceRepository
