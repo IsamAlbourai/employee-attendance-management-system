@@ -41,10 +41,30 @@ public class SecurityConfig {
                                                 "Unauthorized"
                                         )
                         )
+                        .accessDeniedHandler(
+                                (request, response, accessDeniedException) ->
+                                        response.sendError(
+                                                HttpServletResponse.SC_FORBIDDEN,
+                                                "Forbidden"
+                                        )
+                        )
                 )
 
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**", "/error").permitAll()
+
+                        .requestMatchers(
+                                "/api/auth/**",
+                                "/error"
+                        ).permitAll()
+
+                        .requestMatchers(
+                                "/api/work-schedules/**"
+                        ).hasRole("ADMIN")
+
+                        .requestMatchers(
+                                "/api/attendance/**"
+                        ).hasAnyRole("EMPLOYEE", "ADMIN")
+
                         .anyRequest().authenticated()
                 );
 
