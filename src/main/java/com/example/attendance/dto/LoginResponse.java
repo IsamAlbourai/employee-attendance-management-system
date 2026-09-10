@@ -12,4 +12,7 @@ public class LoginResponse {
     private String email;
     private String role;
     private boolean active;
+
+    private String token;
+    private String tokenType;
 }

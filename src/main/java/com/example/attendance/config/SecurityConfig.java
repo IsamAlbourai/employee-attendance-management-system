@@ -6,34 +6,38 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 public class SecurityConfig {
 
-    @Bean
-    public SecurityContextRepository securityContextRepository() {
-        return new HttpSessionSecurityContextRepository();
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    public SecurityConfig(
+            JwtAuthenticationFilter jwtAuthenticationFilter
+    ) {
+        this.jwtAuthenticationFilter =
+                jwtAuthenticationFilter;
     }
 
     @Bean
     public SecurityFilterChain securityFilterChain(
-            HttpSecurity http,
-            SecurityContextRepository securityContextRepository
+            HttpSecurity http
     ) throws Exception {
 
         http
                 .csrf(csrf -> csrf.disable())
 
-                .securityContext(securityContext ->
-                        securityContext.securityContextRepository(
-                                securityContextRepository
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(
+                                SessionCreationPolicy.STATELESS
                         )
                 )
 
                 .exceptionHandling(exception -> exception
+
                         .authenticationEntryPoint(
                                 (request, response, authException) ->
                                         response.sendError(
@@ -41,6 +45,7 @@ public class SecurityConfig {
                                                 "Unauthorized"
                                         )
                         )
+
                         .accessDeniedHandler(
                                 (request, response, accessDeniedException) ->
                                         response.sendError(
@@ -63,9 +68,17 @@ public class SecurityConfig {
 
                         .requestMatchers(
                                 "/api/attendance/**"
-                        ).hasAnyRole("EMPLOYEE", "ADMIN")
+                        ).hasAnyRole(
+                                "EMPLOYEE",
+                                "ADMIN"
+                        )
 
                         .anyRequest().authenticated()
+                )
+
+                .addFilterBefore(
+                        jwtAuthenticationFilter,
+                        UsernamePasswordAuthenticationFilter.class
                 );
 
         return http.build();
@@ -76,6 +89,7 @@ public class SecurityConfig {
             AuthenticationConfiguration authenticationConfiguration
     ) throws Exception {
 
-        return authenticationConfiguration.getAuthenticationManager();
+        return authenticationConfiguration
+                .getAuthenticationManager();
     }
 }

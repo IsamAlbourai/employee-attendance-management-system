@@ -6,13 +6,10 @@ import com.example.attendance.dto.RegisterRequest;
 import com.example.attendance.dto.RegisterResponse;
 import com.example.attendance.entity.User;
 import com.example.attendance.service.AuthService;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.security.core.context.SecurityContextHolder;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -20,7 +17,9 @@ public class AuthController {
 
     private final AuthService authService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(
+            AuthService authService
+    ) {
         this.authService = authService;
     }
 
@@ -29,15 +28,17 @@ public class AuthController {
             @Valid @RequestBody RegisterRequest request
     ) {
 
-        User user = authService.register(request);
+        User user =
+                authService.register(request);
 
-        RegisterResponse response = new RegisterResponse(
-                user.getId(),
-                user.getName(),
-                user.getEmail(),
-                user.getRole(),
-                user.isActive()
-        );
+        RegisterResponse response =
+                new RegisterResponse(
+                        user.getId(),
+                        user.getName(),
+                        user.getEmail(),
+                        user.getRole(),
+                        user.isActive()
+                );
 
         return ResponseEntity
                 .status(HttpStatus.CREATED)
@@ -46,34 +47,28 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(
-            @Valid @RequestBody LoginRequest request,
-            HttpServletRequest httpRequest,
-            HttpServletResponse httpResponse
+            @Valid @RequestBody LoginRequest request
     ) {
 
-        User user = authService.login(
-                request,
-                httpRequest,
-                httpResponse
-        );
+        String token =
+                authService.login(request);
 
-        LoginResponse response = new LoginResponse(
-                user.getId(),
-                user.getName(),
-                user.getEmail(),
-                user.getRole(),
-                user.isActive()
-        );
+        User user =
+                authService.getUserByEmail(
+                        request.getEmail()
+                );
+
+        LoginResponse response =
+                new LoginResponse(
+                        user.getId(),
+                        user.getName(),
+                        user.getEmail(),
+                        user.getRole(),
+                        user.isActive(),
+                        token,
+                        "Bearer"
+                );
 
         return ResponseEntity.ok(response);
-    }
-    @PostMapping("/logout")
-    public ResponseEntity<String> logout(HttpServletRequest request) {
-
-        request.getSession().invalidate();
-
-        SecurityContextHolder.clearContext();
-
-        return ResponseEntity.ok("Logged out successfully");
     }
 }
