@@ -65,6 +65,10 @@ public class SecurityConfig {
                         ).hasRole("ADMIN")
 
                         .requestMatchers(
+                                "/api/manager/**"
+                        ).hasRole("MANAGER")
+
+                        .requestMatchers(
                                 "/api/work-schedules/**"
                         ).hasRole("ADMIN")
 
@@ -74,6 +78,14 @@ public class SecurityConfig {
                                 "EMPLOYEE",
                                 "MANAGER",
                                 "ADMIN"
+                        )
+
+                        .requestMatchers(
+                                "/api/leave-requests/my",
+                                "/api/leave-requests"
+                        ).hasAnyRole(
+                                "EMPLOYEE",
+                                "MANAGER"
                         )
 
                         .anyRequest().authenticated()
