@@ -1,3 +1,4 @@
+
 package com.example.attendance.entity;
 
 import jakarta.persistence.*;
@@ -30,4 +31,11 @@ public class User {
 
     @Column(nullable = false)
     private boolean active = true;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "manager_id",
+            referencedColumnName = "id"
+    )
+    private User manager;
 }

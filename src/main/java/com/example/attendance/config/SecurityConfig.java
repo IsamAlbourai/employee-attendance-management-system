@@ -1,3 +1,4 @@
+
 package com.example.attendance.config;
 
 import jakarta.servlet.http.HttpServletResponse;
@@ -18,8 +19,7 @@ public class SecurityConfig {
     public SecurityConfig(
             JwtAuthenticationFilter jwtAuthenticationFilter
     ) {
-        this.jwtAuthenticationFilter =
-                jwtAuthenticationFilter;
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
 
     @Bean
@@ -37,7 +37,6 @@ public class SecurityConfig {
                 )
 
                 .exceptionHandling(exception -> exception
-
                         .authenticationEntryPoint(
                                 (request, response, authException) ->
                                         response.sendError(
@@ -45,7 +44,6 @@ public class SecurityConfig {
                                                 "Unauthorized"
                                         )
                         )
-
                         .accessDeniedHandler(
                                 (request, response, accessDeniedException) ->
                                         response.sendError(
@@ -63,6 +61,10 @@ public class SecurityConfig {
                         ).permitAll()
 
                         .requestMatchers(
+                                "/api/admin/**"
+                        ).hasRole("ADMIN")
+
+                        .requestMatchers(
                                 "/api/work-schedules/**"
                         ).hasRole("ADMIN")
 
@@ -70,6 +72,7 @@ public class SecurityConfig {
                                 "/api/attendance/**"
                         ).hasAnyRole(
                                 "EMPLOYEE",
+                                "MANAGER",
                                 "ADMIN"
                         )
 
