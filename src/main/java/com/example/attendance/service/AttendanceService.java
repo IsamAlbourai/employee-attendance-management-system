@@ -1,3 +1,4 @@
+
 package com.example.attendance.service;
 
 import com.example.attendance.dto.AttendanceCheckOutResult;
@@ -11,6 +12,7 @@ import com.example.attendance.repository.UserRepository;
 import com.example.attendance.repository.WorkScheduleRepository;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -23,15 +25,18 @@ public class AttendanceService {
     private final AttendanceRepository attendanceRepository;
     private final UserRepository userRepository;
     private final WorkScheduleRepository workScheduleRepository;
+    private final EmailNotificationService emailNotificationService;
 
     public AttendanceService(
             AttendanceRepository attendanceRepository,
             UserRepository userRepository,
-            WorkScheduleRepository workScheduleRepository
+            WorkScheduleRepository workScheduleRepository,
+            EmailNotificationService emailNotificationService
     ) {
         this.attendanceRepository = attendanceRepository;
         this.userRepository = userRepository;
         this.workScheduleRepository = workScheduleRepository;
+        this.emailNotificationService = emailNotificationService;
     }
 
     public Attendance checkIn(Authentication authentication) {
@@ -62,6 +67,7 @@ public class AttendanceService {
         return attendanceRepository.save(attendance);
     }
 
+    @Transactional
     public AttendanceCheckOutResult checkOut(
             Authentication authentication
     ) {
@@ -120,12 +126,88 @@ public class AttendanceService {
         Attendance savedAttendance =
                 attendanceRepository.save(attendance);
 
+        if ("INCOMPLETE".equals(status)) {
+            queueIncompleteAttendanceNotification(
+                    savedAttendance,
+                    user,
+                    requiredMinutes,
+                    workedMinutes,
+                    differenceMinutes
+            );
+        }
+
         return new AttendanceCheckOutResult(
                 savedAttendance,
                 workedMinutes,
                 requiredMinutes,
                 differenceMinutes,
                 status
+        );
+    }
+
+    private void queueIncompleteAttendanceNotification(
+            Attendance attendance,
+            User employee,
+            int requiredMinutes,
+            long workedMinutes,
+            long differenceMinutes
+    ) {
+
+        User manager = employee.getManager();
+
+        if (manager == null
+                || !manager.isActive()
+                || !"MANAGER".equals(manager.getRole())) {
+            return;
+        }
+
+        String eventKey =
+                "ATTENDANCE_INCOMPLETE:" + attendance.getId();
+
+        String subject =
+                "Incomplete Attendance - "
+                        + employee.getName()
+                        + " - "
+                        + attendance.getWorkDate();
+
+        String body = """
+                Hello %s,
+
+                An employee has checked out before completing
+                their required working hours.
+
+                Employee: %s
+                Employee Email: %s
+                Attendance ID: %s
+                Work Date: %s
+
+                Required Minutes: %s
+                Worked Minutes: %s
+                Missing Minutes: %s
+
+                Attendance Status: INCOMPLETE
+
+                Please review this attendance record in the
+                Employee Attendance Management System.
+
+                Regards,
+                Attendance Management System
+                """.formatted(
+                manager.getName(),
+                employee.getName(),
+                employee.getEmail(),
+                attendance.getId(),
+                attendance.getWorkDate(),
+                requiredMinutes,
+                workedMinutes,
+                Math.abs(differenceMinutes)
+        );
+
+        emailNotificationService.queueEmail(
+                eventKey,
+                manager.getEmail(),
+                subject,
+                body
         );
     }
 

@@ -1,3 +1,4 @@
+
 package com.example.attendance.service;
 
 import com.example.attendance.dto.AttendanceCheckOutResult;
@@ -15,11 +16,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.Authentication;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -35,6 +37,9 @@ class AttendanceServiceTest {
     private WorkScheduleRepository workScheduleRepository;
 
     @Mock
+    private EmailNotificationService emailNotificationService;
+
+    @Mock
     private Authentication authentication;
 
     private AttendanceService attendanceService;
@@ -47,7 +52,8 @@ class AttendanceServiceTest {
         attendanceService = new AttendanceService(
                 attendanceRepository,
                 userRepository,
-                workScheduleRepository
+                workScheduleRepository,
+                emailNotificationService
         );
 
         user = new User();
@@ -89,13 +95,14 @@ class AttendanceServiceTest {
 
         verify(attendanceRepository, times(1))
                 .save(any(Attendance.class));
+
+        verifyNoInteractions(emailNotificationService);
     }
 
     @Test
     void checkInShouldRejectDuplicateCheckIn() {
 
-        Attendance existingAttendance =
-                new Attendance();
+        Attendance existingAttendance = new Attendance();
 
         existingAttendance.setUser(user);
         existingAttendance.setCheckInTime(
@@ -111,16 +118,12 @@ class AttendanceServiceTest {
 
         when(attendanceRepository
                 .findByUserAndCheckOutTimeIsNull(user))
-                .thenReturn(
-                        Optional.of(existingAttendance)
-                );
+                .thenReturn(Optional.of(existingAttendance));
 
         ConflictException exception =
                 assertThrows(
                         ConflictException.class,
-                        () ->
-                                attendanceService
-                                        .checkIn(authentication)
+                        () -> attendanceService.checkIn(authentication)
                 );
 
         assertEquals(
@@ -130,93 +133,143 @@ class AttendanceServiceTest {
 
         verify(attendanceRepository, never())
                 .save(any(Attendance.class));
+
+        verifyNoInteractions(emailNotificationService);
     }
 
     @Test
     void checkOutShouldCalculateWorkedTimeAndStatus() {
 
-        Attendance attendance =
-                new Attendance();
+        Attendance attendance = new Attendance();
 
         attendance.setUser(user);
-
         attendance.setCheckInTime(
-                LocalDateTime.now()
-                        .minusMinutes(500)
+                LocalDateTime.now().minusMinutes(500)
         );
 
-        WorkSchedule workSchedule =
-                new WorkSchedule();
-
+        WorkSchedule workSchedule = new WorkSchedule();
         workSchedule.setRequiredMinutes(480);
 
-        when(authentication.getName())
-                .thenReturn("second.employee@example.com");
-
-        when(userRepository.findByEmail(
-                "second.employee@example.com"
-        )).thenReturn(Optional.of(user));
-
-        when(attendanceRepository
-                .findByUserAndCheckOutTimeIsNull(user))
-                .thenReturn(
-                        Optional.of(attendance)
-                );
-
-        when(workScheduleRepository
-                .findByUserId(2L))
-                .thenReturn(
-                        Optional.of(workSchedule)
-                );
-
-        when(attendanceRepository.save(
-                any(Attendance.class)
-        )).thenAnswer(invocation ->
-                invocation.getArgument(0)
-        );
+        mockCheckoutDependencies(attendance, workSchedule);
 
         AttendanceCheckOutResult result =
-                attendanceService
-                        .checkOut(authentication);
+                attendanceService.checkOut(authentication);
 
         assertNotNull(result);
 
-        assertTrue(
-                result.getWorkedMinutes() >= 500
+        assertTrue(result.getWorkedMinutes() >= 500);
+        assertEquals(480, result.getRequiredMinutes());
+        assertTrue(result.getDifferenceMinutes() >= 20);
+        assertEquals("COMPLETED", result.getStatus());
+
+        Attendance savedAttendance = result.getAttendance();
+
+        assertNotNull(savedAttendance.getCheckOutTime());
+        assertEquals("COMPLETED", savedAttendance.getStatus());
+        assertEquals(480, savedAttendance.getRequiredMinutes());
+
+        verify(attendanceRepository).save(attendance);
+
+        verifyNoInteractions(emailNotificationService);
+    }
+
+    @Test
+    void incompleteCheckoutShouldNotifyAssignedManager() {
+
+        User manager = new User();
+        manager.setId(1L);
+        manager.setName("Test Manager");
+        manager.setEmail("test.employee@example.com");
+        manager.setRole("MANAGER");
+        manager.setActive(true);
+
+        user.setManager(manager);
+
+        Attendance attendance = new Attendance();
+        attendance.setUser(user);
+        attendance.setWorkDate(LocalDate.now());
+        attendance.setCheckInTime(
+                LocalDateTime.now().minusMinutes(60)
         );
 
-        assertEquals(
-                480,
-                result.getRequiredMinutes()
+        WorkSchedule workSchedule = new WorkSchedule();
+        workSchedule.setRequiredMinutes(480);
+
+        mockCheckoutDependencies(attendance, workSchedule);
+
+        AttendanceCheckOutResult result =
+                attendanceService.checkOut(authentication);
+
+        assertEquals("INCOMPLETE", result.getStatus());
+        assertEquals(480, result.getRequiredMinutes());
+        assertTrue(result.getWorkedMinutes() < 480);
+        assertTrue(result.getDifferenceMinutes() < 0);
+
+        verify(emailNotificationService, times(1))
+                .queueEmail(
+                        eq("ATTENDANCE_INCOMPLETE:10"),
+                        eq(manager.getEmail()),
+                        argThat(subject ->
+                                subject.contains("Incomplete Attendance")
+                                        && subject.contains(user.getName())
+                        ),
+                        argThat(body ->
+                                body.contains(user.getEmail())
+                                        && body.contains("INCOMPLETE")
+                                        && body.contains("Required Minutes: 480")
+                                        && body.contains("Attendance ID: 10")
+                        )
+                );
+    }
+
+    @Test
+    void incompleteCheckoutWithoutManagerShouldNotQueueEmail() {
+
+        Attendance attendance = new Attendance();
+        attendance.setUser(user);
+        attendance.setWorkDate(LocalDate.now());
+        attendance.setCheckInTime(
+                LocalDateTime.now().minusMinutes(60)
         );
 
-        assertTrue(
-                result.getDifferenceMinutes() >= 20
-        );
+        WorkSchedule workSchedule = new WorkSchedule();
+        workSchedule.setRequiredMinutes(480);
 
-        assertEquals(
-                "COMPLETED",
-                result.getStatus()
-        );
+        mockCheckoutDependencies(attendance, workSchedule);
 
-        Attendance savedAttendance =
-                result.getAttendance();
+        AttendanceCheckOutResult result =
+                attendanceService.checkOut(authentication);
 
-        assertNotNull(
-                savedAttendance.getCheckOutTime()
-        );
+        assertEquals("INCOMPLETE", result.getStatus());
 
-        assertEquals(
-                "COMPLETED",
-                savedAttendance.getStatus()
-        );
+        verify(attendanceRepository).save(attendance);
 
-        assertEquals(
-                480,
-                savedAttendance.getRequiredMinutes()
-        );
+        verifyNoInteractions(emailNotificationService);
+    }
 
-        verify(attendanceRepository, times(1))
-                .save(attendance);
+    private void mockCheckoutDependencies(
+            Attendance attendance,
+            WorkSchedule workSchedule
+    ) {
+
+        when(authentication.getName())
+                .thenReturn(user.getEmail());
+
+        when(userRepository.findByEmail(user.getEmail()))
+                .thenReturn(Optional.of(user));
+
+        when(attendanceRepository
+                .findByUserAndCheckOutTimeIsNull(user))
+                .thenReturn(Optional.of(attendance));
+
+        when(workScheduleRepository.findByUserId(user.getId()))
+                .thenReturn(Optional.of(workSchedule));
+
+        when(attendanceRepository.save(any(Attendance.class)))
+                .thenAnswer(invocation -> {
+                    Attendance saved = invocation.getArgument(0);
+                    saved.setId(10L);
+                    return saved;
+                });
     }
 }
