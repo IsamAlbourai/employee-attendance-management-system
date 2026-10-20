@@ -73,6 +73,10 @@ public class SecurityConfig {
                         ).hasRole("ADMIN")
 
                         .requestMatchers(
+                                "/api/leave-balances/my"
+                        ).hasRole("EMPLOYEE")
+
+                        .requestMatchers(
                                 "/api/attendance/**"
                         ).hasAnyRole(
                                 "EMPLOYEE",

@@ -22,15 +22,24 @@ public class LeaveRequestService {
     private final LeaveRequestRepository leaveRequestRepository;
     private final UserRepository userRepository;
     private final EmailNotificationService emailNotificationService;
+    private final LeaveBalanceInitializationService initializationService;
+    private final LeaveBalanceValidationService validationService;
+    private final LeaveDayCalculator leaveDayCalculator;
 
     public LeaveRequestService(
             LeaveRequestRepository leaveRequestRepository,
             UserRepository userRepository,
-            EmailNotificationService emailNotificationService
+            EmailNotificationService emailNotificationService,
+            LeaveBalanceInitializationService initializationService,
+            LeaveBalanceValidationService validationService,
+            LeaveDayCalculator leaveDayCalculator
     ) {
         this.leaveRequestRepository = leaveRequestRepository;
         this.userRepository = userRepository;
         this.emailNotificationService = emailNotificationService;
+        this.initializationService = initializationService;
+        this.validationService = validationService;
+        this.leaveDayCalculator = leaveDayCalculator;
     }
 
     @Transactional
@@ -39,38 +48,16 @@ public class LeaveRequestService {
             Authentication authentication
     ) {
 
-        String email = authentication.getName();
-
-        User employee = userRepository.findByEmail(email)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "Employee not found"
-                        )
-                );
-
-        if (!employee.isActive()) {
-            throw new ConflictException(
-                    "Inactive employees cannot request leave"
+        if (authentication == null
+                || !authentication.isAuthenticated()) {
+            throw new IllegalArgumentException(
+                    "Authentication is required"
             );
         }
 
-        User manager = employee.getManager();
-
-        if (manager == null) {
-            throw new ConflictException(
-                    "Employee does not have an assigned manager"
-            );
-        }
-
-        if (!"MANAGER".equals(manager.getRole())) {
-            throw new ConflictException(
-                    "Assigned manager does not have the MANAGER role"
-            );
-        }
-
-        if (!manager.isActive()) {
-            throw new ConflictException(
-                    "Assigned manager is inactive"
+        if (request == null) {
+            throw new IllegalArgumentException(
+                    "Leave request is required"
             );
         }
 
@@ -95,6 +82,71 @@ public class LeaveRequestService {
             );
         }
 
+        if (startDate.getYear() < 2000
+                || endDate.getYear() > 2100) {
+            throw new IllegalArgumentException(
+                    "Leave dates must be between 2000 and 2100"
+            );
+        }
+
+        if (leaveDayCalculator.countWorkingDays(
+                startDate, endDate) == 0) {
+            throw new ConflictException(
+                    "Leave request must include at least one working day"
+            );
+        }
+
+        String email = authentication.getName();
+
+        User account = userRepository.findByEmail(email)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Employee not found"
+                        )
+                );
+
+        // Serialize leave submissions for this employee.
+        User employee = userRepository
+                .findByIdForUpdate(account.getId())
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Employee not found"
+                        )
+                );
+
+        if (!employee.isActive()) {
+            throw new ConflictException(
+                    "Inactive employees cannot request leave"
+            );
+        }
+
+        if (!"EMPLOYEE".equals(employee.getRole())) {
+            throw new ConflictException(
+                    "Only employees can request annual leave"
+            );
+        }
+
+        User manager = employee.getManager();
+
+        if (manager == null) {
+            throw new ConflictException(
+                    "Employee does not have an assigned manager"
+            );
+        }
+
+        if (!"MANAGER".equals(manager.getRole())) {
+            throw new ConflictException(
+                    "Assigned manager does not have the MANAGER role"
+            );
+        }
+
+        if (!manager.isActive()) {
+            throw new ConflictException(
+                    "Assigned manager is inactive"
+            );
+        }
+
+        // Check for overlaps after acquiring the employee lock.
         boolean overlappingRequest =
                 leaveRequestRepository
                         .existsByEmployeeIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
@@ -113,6 +165,25 @@ public class LeaveRequestService {
             );
         }
 
+        // Ensure every affected year has a balance.
+        // These calls join the current transaction.
+        for (int year = startDate.getYear();
+             year <= endDate.getYear();
+             year++) {
+
+            initializationService.initializeEmployeeYear(
+                    employee.getId(),
+                    year
+            );
+        }
+
+        // Check available working days for each affected year.
+        validationService.validateRequestedLeave(
+                employee.getId(),
+                startDate,
+                endDate
+        );
+
         LeaveRequest leaveRequest = new LeaveRequest();
 
         leaveRequest.setEmployee(employee);
@@ -125,7 +196,11 @@ public class LeaveRequestService {
         LeaveRequest savedLeaveRequest =
                 leaveRequestRepository.save(leaveRequest);
 
-        queueManagerNotification(savedLeaveRequest, employee, manager);
+        queueManagerNotification(
+                savedLeaveRequest,
+                employee,
+                manager
+        );
 
         return savedLeaveRequest;
     }
