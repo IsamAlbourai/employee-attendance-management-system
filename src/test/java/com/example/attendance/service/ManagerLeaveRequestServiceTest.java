@@ -17,10 +17,12 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -31,6 +33,9 @@ class ManagerLeaveRequestServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private EmailNotificationService emailNotificationService;
 
     @InjectMocks
     private ManagerLeaveRequestService managerLeaveRequestService;
@@ -45,12 +50,14 @@ class ManagerLeaveRequestServiceTest {
 
         manager = new User();
         manager.setId(1L);
+        manager.setName("Test Manager");
         manager.setEmail("test.employee@example.com");
         manager.setRole("MANAGER");
         manager.setActive(true);
 
         employee = new User();
         employee.setId(2L);
+        employee.setName("Second Employee");
         employee.setEmail("second.employee@example.com");
         employee.setRole("EMPLOYEE");
         employee.setActive(true);
@@ -59,6 +66,8 @@ class ManagerLeaveRequestServiceTest {
         leaveRequest.setId(1L);
         leaveRequest.setEmployee(employee);
         leaveRequest.setManager(manager);
+        leaveRequest.setStartDate(LocalDate.of(2027, 1, 10));
+        leaveRequest.setEndDate(LocalDate.of(2027, 1, 15));
         leaveRequest.setStatus(LeaveRequestStatus.PENDING);
 
         authentication =
@@ -89,6 +98,8 @@ class ManagerLeaveRequestServiceTest {
 
         assertEquals(1, results.size());
         assertEquals(leaveRequest, results.get(0));
+
+        verifyNoInteractions(emailNotificationService);
     }
 
     @Test
@@ -123,6 +134,20 @@ class ManagerLeaveRequestServiceTest {
         assertNotNull(result.getReviewedAt());
 
         verify(leaveRequestRepository).save(leaveRequest);
+
+        verify(emailNotificationService).queueEmail(
+                eq("LEAVE_REQUEST_APPROVED:1"),
+                eq(employee.getEmail()),
+                eq("Annual Leave Request APPROVED - #1"),
+                argThat(body ->
+                        body.contains("Second Employee")
+                                && body.contains("APPROVED")
+                                && body.contains("Approved")
+                                && body.contains("Test Manager")
+                                && body.contains("2027-01-10")
+                                && body.contains("2027-01-15")
+                )
+        );
     }
 
     @Test
@@ -155,14 +180,26 @@ class ManagerLeaveRequestServiceTest {
         );
 
         assertNotNull(result.getReviewedAt());
+
+        verify(leaveRequestRepository).save(leaveRequest);
+
+        verify(emailNotificationService).queueEmail(
+                eq("LEAVE_REQUEST_REJECTED:1"),
+                eq(employee.getEmail()),
+                eq("Annual Leave Request REJECTED - #1"),
+                argThat(body ->
+                        body.contains("Second Employee")
+                                && body.contains("REJECTED")
+                                && body.contains("Staffing requirements")
+                                && body.contains("Test Manager")
+                )
+        );
     }
 
     @Test
     void managerShouldNotApproveAlreadyApprovedRequest() {
 
-        leaveRequest.setStatus(
-                LeaveRequestStatus.APPROVED
-        );
+        leaveRequest.setStatus(LeaveRequestStatus.APPROVED);
 
         when(userRepository.findByEmail(manager.getEmail()))
                 .thenReturn(Optional.of(manager));
@@ -181,6 +218,8 @@ class ManagerLeaveRequestServiceTest {
 
         verify(leaveRequestRepository, never())
                 .save(any(LeaveRequest.class));
+
+        verifyNoInteractions(emailNotificationService);
     }
 
     @Test
@@ -210,6 +249,8 @@ class ManagerLeaveRequestServiceTest {
 
         verify(leaveRequestRepository, never())
                 .save(any(LeaveRequest.class));
+
+        verifyNoInteractions(emailNotificationService);
     }
 
     @Test
@@ -231,5 +272,7 @@ class ManagerLeaveRequestServiceTest {
 
         verify(leaveRequestRepository, never())
                 .save(any(LeaveRequest.class));
+
+        verifyNoInteractions(emailNotificationService);
     }
 }

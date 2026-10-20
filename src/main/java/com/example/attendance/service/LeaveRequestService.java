@@ -21,13 +21,16 @@ public class LeaveRequestService {
 
     private final LeaveRequestRepository leaveRequestRepository;
     private final UserRepository userRepository;
+    private final EmailNotificationService emailNotificationService;
 
     public LeaveRequestService(
             LeaveRequestRepository leaveRequestRepository,
-            UserRepository userRepository
+            UserRepository userRepository,
+            EmailNotificationService emailNotificationService
     ) {
         this.leaveRequestRepository = leaveRequestRepository;
         this.userRepository = userRepository;
+        this.emailNotificationService = emailNotificationService;
     }
 
     @Transactional
@@ -117,11 +120,67 @@ public class LeaveRequestService {
         leaveRequest.setStartDate(startDate);
         leaveRequest.setEndDate(endDate);
         leaveRequest.setReason(request.getReason());
-        leaveRequest.setStatus(
-                LeaveRequestStatus.PENDING
+        leaveRequest.setStatus(LeaveRequestStatus.PENDING);
+
+        LeaveRequest savedLeaveRequest =
+                leaveRequestRepository.save(leaveRequest);
+
+        queueManagerNotification(savedLeaveRequest, employee, manager);
+
+        return savedLeaveRequest;
+    }
+
+    private void queueManagerNotification(
+            LeaveRequest leaveRequest,
+            User employee,
+            User manager
+    ) {
+
+        String eventKey =
+                "LEAVE_REQUEST_CREATED:" + leaveRequest.getId();
+
+        String subject =
+                "New Annual Leave Request - #" + leaveRequest.getId();
+
+        String reason = leaveRequest.getReason();
+
+        if (reason == null || reason.isBlank()) {
+            reason = "No reason provided";
+        }
+
+        String body = """
+                Hello,
+
+                A new annual leave request requires your review.
+
+                Leave Request ID: %s
+                Employee: %s
+                Employee Email: %s
+                Start Date: %s
+                End Date: %s
+                Reason: %s
+                Status: PENDING
+
+                Please review this request in the
+                Employee Attendance Management System.
+
+                Regards,
+                Attendance Management System
+                """.formatted(
+                leaveRequest.getId(),
+                employee.getName(),
+                employee.getEmail(),
+                leaveRequest.getStartDate(),
+                leaveRequest.getEndDate(),
+                reason
         );
 
-        return leaveRequestRepository.save(leaveRequest);
+        emailNotificationService.queueEmail(
+                eventKey,
+                manager.getEmail(),
+                subject,
+                body
+        );
     }
 
     @Transactional(readOnly = true)

@@ -21,13 +21,16 @@ public class ManagerLeaveRequestService {
 
     private final LeaveRequestRepository leaveRequestRepository;
     private final UserRepository userRepository;
+    private final EmailNotificationService emailNotificationService;
 
     public ManagerLeaveRequestService(
             LeaveRequestRepository leaveRequestRepository,
-            UserRepository userRepository
+            UserRepository userRepository,
+            EmailNotificationService emailNotificationService
     ) {
         this.leaveRequestRepository = leaveRequestRepository;
         this.userRepository = userRepository;
+        this.emailNotificationService = emailNotificationService;
     }
 
     @Transactional(readOnly = true)
@@ -110,11 +113,72 @@ public class ManagerLeaveRequestService {
 
         leaveRequest.setStatus(decision);
         leaveRequest.setManagerComment(comment);
-        leaveRequest.setReviewedAt(
-                LocalDateTime.now()
+        leaveRequest.setReviewedAt(LocalDateTime.now());
+
+        LeaveRequest savedLeaveRequest =
+                leaveRequestRepository.save(leaveRequest);
+
+        queueEmployeeNotification(
+                savedLeaveRequest,
+                manager,
+                decision
         );
 
-        return leaveRequestRepository.save(leaveRequest);
+        return savedLeaveRequest;
+    }
+
+    private void queueEmployeeNotification(
+            LeaveRequest leaveRequest,
+            User manager,
+            LeaveRequestStatus decision
+    ) {
+
+        String eventKey =
+                "LEAVE_REQUEST_" + decision + ":" + leaveRequest.getId();
+
+        String subject =
+                "Annual Leave Request " + decision
+                        + " - #" + leaveRequest.getId();
+
+        String managerComment = leaveRequest.getManagerComment();
+
+        if (managerComment == null || managerComment.isBlank()) {
+            managerComment = "No comment provided";
+        }
+
+        String body = """
+                Hello %s,
+
+                Your annual leave request has been reviewed.
+
+                Leave Request ID: %s
+                Start Date: %s
+                End Date: %s
+                Decision: %s
+                Reviewed By: %s
+                Manager Comment: %s
+
+                You can view your leave request in the
+                Employee Attendance Management System.
+
+                Regards,
+                Attendance Management System
+                """.formatted(
+                leaveRequest.getEmployee().getName(),
+                leaveRequest.getId(),
+                leaveRequest.getStartDate(),
+                leaveRequest.getEndDate(),
+                decision,
+                manager.getName(),
+                managerComment
+        );
+
+        emailNotificationService.queueEmail(
+                eventKey,
+                leaveRequest.getEmployee().getEmail(),
+                subject,
+                body
+        );
     }
 
     private User getAuthenticatedManager(

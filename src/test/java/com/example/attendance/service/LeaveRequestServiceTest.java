@@ -34,6 +34,9 @@ class LeaveRequestServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private EmailNotificationService emailNotificationService;
+
     @InjectMocks
     private LeaveRequestService leaveRequestService;
 
@@ -89,7 +92,11 @@ class LeaveRequestServiceTest {
                 .thenReturn(false);
 
         when(leaveRequestRepository.save(any(LeaveRequest.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+                .thenAnswer(invocation -> {
+                    LeaveRequest saved = invocation.getArgument(0);
+                    saved.setId(3L);
+                    return saved;
+                });
 
         LeaveRequest result =
                 leaveRequestService.createLeaveRequest(
@@ -97,6 +104,7 @@ class LeaveRequestServiceTest {
                         authentication
                 );
 
+        assertEquals(3L, result.getId());
         assertEquals(employee, result.getEmployee());
         assertEquals(manager, result.getManager());
 
@@ -123,6 +131,21 @@ class LeaveRequestServiceTest {
         verify(leaveRequestRepository).save(
                 any(LeaveRequest.class)
         );
+
+        verify(emailNotificationService, times(1))
+                .queueEmail(
+                        eq("LEAVE_REQUEST_CREATED:3"),
+                        eq(manager.getEmail()),
+                        eq("New Annual Leave Request - #3"),
+                        argThat(body ->
+                                body.contains("Second Employee")
+                                        && body.contains(employee.getEmail())
+                                        && body.contains("Annual vacation")
+                                        && body.contains(request.getStartDate().toString())
+                                        && body.contains(request.getEndDate().toString())
+                                        && body.contains("PENDING")
+                        )
+                );
     }
 
     @Test
@@ -150,6 +173,8 @@ class LeaveRequestServiceTest {
 
         verify(leaveRequestRepository, never())
                 .save(any(LeaveRequest.class));
+
+        verifyNoInteractions(emailNotificationService);
     }
 
     @Test
@@ -170,6 +195,8 @@ class LeaveRequestServiceTest {
 
         verify(leaveRequestRepository, never())
                 .save(any(LeaveRequest.class));
+
+        verifyNoInteractions(emailNotificationService);
     }
 
     @Test
@@ -190,6 +217,8 @@ class LeaveRequestServiceTest {
 
         verify(leaveRequestRepository, never())
                 .save(any(LeaveRequest.class));
+
+        verifyNoInteractions(emailNotificationService);
     }
 
     @Test
@@ -211,6 +240,8 @@ class LeaveRequestServiceTest {
 
         verify(leaveRequestRepository, never())
                 .save(any(LeaveRequest.class));
+
+        verifyNoInteractions(emailNotificationService);
     }
 
     @Test
@@ -239,5 +270,7 @@ class LeaveRequestServiceTest {
 
         verify(leaveRequestRepository)
                 .findByEmployeeIdOrderByCreatedAtDesc(2L);
+
+        verifyNoInteractions(emailNotificationService);
     }
 }
