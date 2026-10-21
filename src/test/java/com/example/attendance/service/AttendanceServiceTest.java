@@ -12,6 +12,7 @@ import com.example.attendance.repository.WorkScheduleRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.Authentication;
@@ -68,18 +69,10 @@ class AttendanceServiceTest {
     @Test
     void checkInShouldCreateAttendanceRecord() {
 
-        when(authentication.getName())
-                .thenReturn("second.employee@example.com");
-
-        when(userRepository.findByEmail(
-                "second.employee@example.com"
-        )).thenReturn(Optional.of(user));
+        mockLockedUser();
 
         when(attendanceRepository
-                .findByUserAndCheckOutTimeIsNull(user))
-                .thenReturn(Optional.empty());
-
-        when(attendanceRepository.save(any(Attendance.class)))
+                .saveAndFlush(any(Attendance.class)))
                 .thenAnswer(invocation ->
                         invocation.getArgument(0)
                 );
@@ -93,8 +86,8 @@ class AttendanceServiceTest {
         assertNotNull(attendance.getCheckInTime());
         assertNull(attendance.getCheckOutTime());
 
-        verify(attendanceRepository, times(1))
-                .save(any(Attendance.class));
+        verify(attendanceRepository)
+                .saveAndFlush(any(Attendance.class));
 
         verifyNoInteractions(emailNotificationService);
     }
@@ -109,22 +102,16 @@ class AttendanceServiceTest {
                 LocalDateTime.now()
         );
 
-        when(authentication.getName())
-                .thenReturn("second.employee@example.com");
-
-        when(userRepository.findByEmail(
-                "second.employee@example.com"
-        )).thenReturn(Optional.of(user));
+        mockLockedUser();
 
         when(attendanceRepository
                 .findByUserAndCheckOutTimeIsNull(user))
                 .thenReturn(Optional.of(existingAttendance));
 
-        ConflictException exception =
-                assertThrows(
-                        ConflictException.class,
-                        () -> attendanceService.checkIn(authentication)
-                );
+        ConflictException exception = assertThrows(
+                ConflictException.class,
+                () -> attendanceService.checkIn(authentication)
+        );
 
         assertEquals(
                 "Employee is already checked in",
@@ -132,7 +119,7 @@ class AttendanceServiceTest {
         );
 
         verify(attendanceRepository, never())
-                .save(any(Attendance.class));
+                .saveAndFlush(any(Attendance.class));
 
         verifyNoInteractions(emailNotificationService);
     }
@@ -144,7 +131,7 @@ class AttendanceServiceTest {
 
         attendance.setUser(user);
         attendance.setCheckInTime(
-                LocalDateTime.now().minusMinutes(500)
+                LocalDateTime.now().minusMinutes(501)
         );
 
         WorkSchedule workSchedule = new WorkSchedule();
@@ -169,7 +156,6 @@ class AttendanceServiceTest {
         assertEquals(480, savedAttendance.getRequiredMinutes());
 
         verify(attendanceRepository).save(attendance);
-
         verifyNoInteractions(emailNotificationService);
     }
 
@@ -177,6 +163,7 @@ class AttendanceServiceTest {
     void incompleteCheckoutShouldNotifyAssignedManager() {
 
         User manager = new User();
+
         manager.setId(1L);
         manager.setName("Test Manager");
         manager.setEmail("test.employee@example.com");
@@ -186,6 +173,7 @@ class AttendanceServiceTest {
         user.setManager(manager);
 
         Attendance attendance = new Attendance();
+
         attendance.setUser(user);
         attendance.setWorkDate(LocalDate.now());
         attendance.setCheckInTime(
@@ -205,7 +193,7 @@ class AttendanceServiceTest {
         assertTrue(result.getWorkedMinutes() < 480);
         assertTrue(result.getDifferenceMinutes() < 0);
 
-        verify(emailNotificationService, times(1))
+        verify(emailNotificationService)
                 .queueEmail(
                         eq("ATTENDANCE_INCOMPLETE:10"),
                         eq(manager.getEmail()),
@@ -226,6 +214,7 @@ class AttendanceServiceTest {
     void incompleteCheckoutWithoutManagerShouldNotQueueEmail() {
 
         Attendance attendance = new Attendance();
+
         attendance.setUser(user);
         attendance.setWorkDate(LocalDate.now());
         attendance.setCheckInTime(
@@ -243,8 +232,120 @@ class AttendanceServiceTest {
         assertEquals("INCOMPLETE", result.getStatus());
 
         verify(attendanceRepository).save(attendance);
-
         verifyNoInteractions(emailNotificationService);
+    }
+
+    @Test
+    void checkInShouldLockUserBeforeCheckingAttendance() {
+
+        mockLockedUser();
+
+        when(attendanceRepository
+                .saveAndFlush(any(Attendance.class)))
+                .thenAnswer(invocation ->
+                        invocation.getArgument(0)
+                );
+
+        attendanceService.checkIn(authentication);
+
+        InOrder inOrder = inOrder(
+                userRepository,
+                attendanceRepository
+        );
+
+        inOrder.verify(userRepository)
+                .findByEmail(user.getEmail());
+
+        inOrder.verify(userRepository)
+                .findByIdForUpdate(2L);
+
+        inOrder.verify(attendanceRepository)
+                .findByUserAndCheckOutTimeIsNull(user);
+
+        inOrder.verify(attendanceRepository)
+                .saveAndFlush(any(Attendance.class));
+    }
+
+    @Test
+    void checkOutShouldLockUserBeforeUpdatingAttendance() {
+
+        Attendance attendance = new Attendance();
+
+        attendance.setUser(user);
+        attendance.setCheckInTime(
+                LocalDateTime.now().minusMinutes(501)
+        );
+
+        WorkSchedule workSchedule = new WorkSchedule();
+        workSchedule.setRequiredMinutes(480);
+
+        mockCheckoutDependencies(attendance, workSchedule);
+
+        attendanceService.checkOut(authentication);
+
+        InOrder inOrder = inOrder(
+                userRepository,
+                attendanceRepository
+        );
+
+        inOrder.verify(userRepository)
+                .findByEmail(user.getEmail());
+
+        inOrder.verify(userRepository)
+                .findByIdForUpdate(2L);
+
+        inOrder.verify(attendanceRepository)
+                .findByUserAndCheckOutTimeIsNull(user);
+
+        inOrder.verify(attendanceRepository)
+                .save(attendance);
+    }
+
+    @Test
+    void inactiveUserShouldNotRecordAttendance() {
+
+        user.setActive(false);
+
+        mockLockedUser();
+
+        ConflictException checkInException = assertThrows(
+                ConflictException.class,
+                () -> attendanceService.checkIn(authentication)
+        );
+
+        assertEquals(
+                "Inactive users cannot record attendance",
+                checkInException.getMessage()
+        );
+
+        ConflictException checkOutException = assertThrows(
+                ConflictException.class,
+                () -> attendanceService.checkOut(authentication)
+        );
+
+        assertEquals(
+                "Inactive users cannot record attendance",
+                checkOutException.getMessage()
+        );
+
+        verifyNoInteractions(attendanceRepository);
+        verifyNoInteractions(workScheduleRepository);
+        verifyNoInteractions(emailNotificationService);
+    }
+
+    private void mockLockedUser() {
+
+        when(authentication.getName())
+                .thenReturn(user.getEmail());
+
+        when(authentication.isAuthenticated())
+                .thenReturn(true);
+
+        when(userRepository.findByEmail(user.getEmail()))
+                .thenReturn(Optional.of(user));
+
+        when(userRepository.findByIdForUpdate(user.getId()))
+                .thenReturn(Optional.of(user));
     }
 
     private void mockCheckoutDependencies(
@@ -252,11 +353,7 @@ class AttendanceServiceTest {
             WorkSchedule workSchedule
     ) {
 
-        when(authentication.getName())
-                .thenReturn(user.getEmail());
-
-        when(userRepository.findByEmail(user.getEmail()))
-                .thenReturn(Optional.of(user));
+        mockLockedUser();
 
         when(attendanceRepository
                 .findByUserAndCheckOutTimeIsNull(user))

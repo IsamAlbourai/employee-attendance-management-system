@@ -39,16 +39,10 @@ public class AttendanceService {
         this.emailNotificationService = emailNotificationService;
     }
 
+    @Transactional
     public Attendance checkIn(Authentication authentication) {
 
-        String email = authentication.getName();
-
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "User not found"
-                        )
-                );
+        User user = getLockedUser(authentication);
 
         attendanceRepository
                 .findByUserAndCheckOutTimeIsNull(user)
@@ -64,7 +58,7 @@ public class AttendanceService {
         attendance.setWorkDate(LocalDate.now());
         attendance.setCheckInTime(LocalDateTime.now());
 
-        return attendanceRepository.save(attendance);
+        return attendanceRepository.saveAndFlush(attendance);
     }
 
     @Transactional
@@ -72,14 +66,7 @@ public class AttendanceService {
             Authentication authentication
     ) {
 
-        String email = authentication.getName();
-
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "User not found"
-                        )
-                );
+        User user = getLockedUser(authentication);
 
         Attendance attendance =
                 attendanceRepository
@@ -143,6 +130,40 @@ public class AttendanceService {
                 differenceMinutes,
                 status
         );
+    }
+
+    private User getLockedUser(Authentication authentication) {
+
+        if (authentication == null
+                || !authentication.isAuthenticated()) {
+            throw new IllegalArgumentException(
+                    "Authentication is required"
+            );
+        }
+
+        User account = userRepository
+                .findByEmail(authentication.getName())
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "User not found"
+                        )
+                );
+
+        User user = userRepository
+                .findByIdForUpdate(account.getId())
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "User not found"
+                        )
+                );
+
+        if (!user.isActive()) {
+            throw new ConflictException(
+                    "Inactive users cannot record attendance"
+            );
+        }
+
+        return user;
     }
 
     private void queueIncompleteAttendanceNotification(
@@ -211,6 +232,7 @@ public class AttendanceService {
         );
     }
 
+    @Transactional(readOnly = true)
     public List<Attendance> getMyAttendanceHistory(
             Authentication authentication
     ) {
