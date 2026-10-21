@@ -1,305 +1,218 @@
 # Employee Attendance Management System
 
-A backend employee attendance management system built with Java and Spring Boot.
+A backend-only Employee Attendance Management System built with **Java 21**, **Spring Boot 4**, **Spring Security**, and **Microsoft SQL Server**.
 
-The application provides employee registration, JWT-based authentication, role-based authorization, work schedule management, attendance tracking, worked-time calculation, and attendance history.
+The REST API provides JWT authentication, role-based access control, employee attendance tracking, work schedule management, annual leave requests and balances, manager reporting, and reliable email notifications.
+
+The project demonstrates layered API design, database migrations, transactional consistency, concurrency protection, and automated testing.
 
 ## Features
 
-- Employee registration
-- BCrypt password hashing
-- JWT-based stateless authentication
-- Bearer token authorization
-- Role-based authorization with `EMPLOYEE` and `ADMIN` roles
-- Inactive account protection
-- Admin work schedule management
-- Employee check-in and check-out
-- Duplicate check-in prevention
-- Check-out validation
-- Automatic worked-time calculation
-- Comparison against required working time
+### Authentication and authorization
+
+- JWT-based stateless authentication and BCrypt password hashing
+- Employee registration and login
+- Three roles: `EMPLOYEE`, `MANAGER`, and `ADMIN`
+- Role-restricted endpoints and inactive-account protection
+- Environment-based database credentials and JWT secret
+
+### Attendance and schedules
+
+- Employee check-in, check-out, and personal attendance history
+- Worked-minute calculations against employee work schedules
 - `COMPLETED` and `INCOMPLETE` attendance status
-- Employee attendance history
-- Persistent attendance calculation results
-- Custom exception handling
-- Input validation
-- Microsoft SQL Server integration
-- Automated testing with JUnit, Mockito, and MockMvc
+- Transactional locking to protect concurrent check-in and check-out
+- SQL Server filtered unique index to prevent duplicate open attendance sessions
+- Administrator-managed work schedules
+- Notifications to managers about incomplete attendance
+
+### Annual leave
+
+- Employee leave requests and personal request history
+- Manager approval and rejection
+- Annual allowances, carried-over days, and per-year balances
+- Pending leave reservations and balance validation
+- Working-day calculation that excludes Saturdays and Sundays
+- Cross-year request calculation
+- Overlapping-request detection and concurrency protection
+
+### Manager reporting and notifications
+
+- Date-filtered team attendance details and summaries
+- Notifications for new leave requests and manager decisions
+- Database-backed email outbox with delivery status, retries, and unique event keys
+- Mailpit integration for local SMTP testing
+
+### Persistence and testing
+
+- SQL Server, Spring Data JPA, and Hibernate
+- Flyway database migrations and schema validation
+- Database constraints, indexes, and transactional operations
+- **92 passing automated tests** in the most recently verified full test run
+- Manual concurrent-request verification against SQL Server
 
 ## Technology Stack
 
-- Java 21
-- Spring Boot 4
-- Spring Security
-- Spring Data JPA
-- Hibernate
-- Microsoft SQL Server
-- Maven
-- Lombok
-- JJWT
-- JUnit
-- Mockito
-- MockMvc
-- Postman
+| Component | Technology |
+| --- | --- |
+| Language | Java 21 |
+| Backend | Spring Boot 4, Spring Web MVC |
+| Security | Spring Security, JWT (JJWT), BCrypt |
+| Persistence | Spring Data JPA, Hibernate |
+| Database | Microsoft SQL Server |
+| Schema migrations | Flyway |
+| Email | Spring Mail, Mailpit |
+| Build | Maven Wrapper |
+| Testing | JUnit, Mockito, MockMvc, Spring Security Test |
+| API testing | Postman |
+| Development IDE | IntelliJ IDEA |
 
-## Project Structure
+## Architecture
+
+The application follows a layered backend structure:
 
 ```text
-src/
-├── main/
-│   └── java/com/example/attendance/
-│       ├── config/
-│       ├── controller/
-│       ├── dto/
-│       ├── entity/
-│       ├── exception/
-│       ├── repository/
-│       └── service/
-│
-└── test/
-    └── java/com/example/attendance/
-        ├── config/
-        └── service/
+HTTP Request
+    |
+    v
+Spring Security / JWT Filter
+    |
+    v
+REST Controller
+    |
+    v
+Service Layer
+    |
+    v
+Spring Data JPA Repository
+    |
+    v
+Microsoft SQL Server
 ```
+
+Controllers accept and return DTOs. Services implement business rules, calculations, and transaction boundaries. Repositories provide database access.
 
 ## Roles and Authorization
 
-The system currently supports two roles.
+**EMPLOYEE:** Log in, check in/out, view personal attendance, submit leave requests, view personal leave requests, and view leave balances.
 
-### EMPLOYEE
+**MANAGER:** Log in, view pending requests for assigned employees, approve or reject requests, and view team attendance reports and summaries.
 
-Employees can:
+**ADMIN:** Log in, assign managers to employees, and create, update, or view employee work schedules.
 
-- Log in
-- Check in
-- Check out
-- View their own attendance history
-
-Employees cannot manage employee work schedules.
-
-### ADMIN
-
-Administrators can:
-
-- Access attendance functionality
-- Create employee work schedules
-- Update employee work schedules
-- View employee work schedules
-
-Work schedule endpoints are protected with Spring Security and require the `ADMIN` role.
-
-## Authentication
-
-Authentication is JWT-based and stateless.
-
-When a user logs in successfully:
-
-1. The submitted email and password are authenticated by Spring Security.
-2. A signed JWT is generated.
-3. The JWT is returned to the client.
-4. The client includes the token in the `Authorization` header on protected requests.
-
-Example:
-
-```http
-Authorization: Bearer <JWT_TOKEN>
-```
-
-The application does not create a server-side login session.
-
-Passwords are stored using BCrypt hashes rather than plain-text passwords.
-
-Inactive users cannot authenticate.
-
-JWT validation also checks whether the user's account is still enabled. This means an already-issued token will no longer authenticate a user after the account is deactivated.
-
-## JWT Configuration
-
-JWT configuration is stored in `application.properties` using an environment variable for the signing secret.
-
-```properties
-jwt.secret=${JWT_SECRET}
-jwt.expiration=86400000
-```
-
-The current expiration value is:
-
-```text
-86400000 milliseconds = 24 hours
-```
-
-The real signing secret is not stored in the repository.
-
-The application expects:
-
-```text
-JWT_SECRET
-```
-
-as an environment variable.
+Spring Security restricts routes by role; services also enforce applicable employee-manager business rules.
 
 ## API Endpoints
 
+Local base URL: `http://localhost:8080`
+
+For protected routes, pass the JWT returned by `/api/auth/login`:
+
+```http
+Authorization: Bearer <JWT_TOKEN>
+```
+
 ### Authentication
 
-#### Register Employee
+| Method | Endpoint | Access | Purpose |
+| --- | --- | --- | --- |
+| POST | `/api/auth/register` | Public | Register an employee |
+| POST | `/api/auth/login` | Public | Log in and obtain a JWT |
+
+### Administration
+
+| Method | Endpoint | Access | Purpose |
+| --- | --- | --- | --- |
+| PUT | `/api/admin/employees/{employeeId}/manager` | ADMIN | Assign an employee's manager |
+| POST | `/api/work-schedules` | ADMIN | Create/update a work schedule |
+| GET | `/api/work-schedules/user/{userId}` | ADMIN | Get an employee's work schedule |
+
+### Attendance
+
+| Method | Endpoint | Access | Purpose |
+| --- | --- | --- | --- |
+| POST | `/api/attendance/check-in` | EMPLOYEE, MANAGER, ADMIN | Check in |
+| POST | `/api/attendance/check-out` | EMPLOYEE, MANAGER, ADMIN | Check out |
+| GET | `/api/attendance/history` | EMPLOYEE, MANAGER, ADMIN | Personal attendance history |
+
+### Leave and balances
+
+| Method | Endpoint | Access | Purpose |
+| --- | --- | --- | --- |
+| POST | `/api/leave-requests` | EMPLOYEE* | Submit a leave request |
+| GET | `/api/leave-requests/my` | EMPLOYEE or MANAGER* | Personal leave requests |
+| GET | `/api/leave-balances/my?year=2028` | EMPLOYEE | Personal annual leave balance |
+| GET | `/api/manager/leave-requests/pending` | MANAGER | Assigned pending requests |
+| PUT | `/api/manager/leave-requests/{id}/approve` | MANAGER | Approve request |
+| PUT | `/api/manager/leave-requests/{id}/reject` | MANAGER | Reject request |
+
+*The security route permits both employee and manager JWTs for `/api/leave-requests`, but leave creation is further restricted to active `EMPLOYEE` accounts by service-level checks; other operations also apply their business rules.
+
+### Manager attendance reporting
+
+| Method | Endpoint | Access | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/manager/attendance?startDate=2026-10-01&endDate=2026-10-31` | MANAGER | Team attendance details |
+| GET | `/api/manager/attendance/summary?startDate=2026-10-01&endDate=2026-10-31` | MANAGER | Team attendance summary |
+
+Dates use the ISO format `YYYY-MM-DD`.
+
+## Example API Requests
+
+### Register employee
 
 ```http
 POST /api/auth/register
+Content-Type: application/json
 ```
-
-Example request:
 
 ```json
 {
   "name": "Example Employee",
   "email": "employee@example.com",
-  "password": "Password123"
+  "password": "ExamplePassword123"
 }
 ```
 
-Newly registered users receive the `EMPLOYEE` role by default.
+Public registration creates an account with the `EMPLOYEE` role.
 
-#### Login
+### Log in
 
 ```http
 POST /api/auth/login
+Content-Type: application/json
 ```
-
-Example request:
 
 ```json
 {
   "email": "employee@example.com",
-  "password": "Password123"
+  "password": "ExamplePassword123"
 }
 ```
 
-Example response:
+A successful response contains account details, a `token`, and `tokenType: "Bearer"`.
+
+### Assign manager (ADMIN)
+
+```http
+PUT /api/admin/employees/2/manager
+Authorization: Bearer <ADMIN_JWT_TOKEN>
+Content-Type: application/json
+```
 
 ```json
 {
-  "id": 2,
-  "name": "Example Employee",
-  "email": "employee@example.com",
-  "role": "EMPLOYEE",
-  "active": true,
-  "token": "<JWT_TOKEN>",
-  "tokenType": "Bearer"
+  "managerId": 1
 }
 ```
 
-### Logout
-
-Because authentication is stateless, there is no server-side HTTP session to invalidate.
-
-Logout is performed by the client by deleting or discarding the JWT.
-
-A production system requiring immediate server-side token revocation could add:
-
-- Token revocation or blacklisting
-- Short-lived access tokens
-- Refresh tokens
-
-## Attendance
-
-Attendance endpoints require a valid JWT belonging to an `EMPLOYEE` or `ADMIN`.
-
-### Check In
-
-```http
-POST /api/attendance/check-in
-```
-
-Header:
-
-```http
-Authorization: Bearer <JWT_TOKEN>
-```
-
-No request body is required.
-
-The authenticated employee is determined from the JWT authentication context rather than from a client-supplied user ID.
-
-An employee cannot create another check-in while an open attendance record already exists.
-
-### Check Out
-
-```http
-POST /api/attendance/check-out
-```
-
-Header:
-
-```http
-Authorization: Bearer <JWT_TOKEN>
-```
-
-No request body is required.
-
-During checkout, the system:
-
-1. Finds the authenticated employee.
-2. Finds the employee's active attendance record.
-3. Finds the employee's required work schedule.
-4. Records the checkout time.
-5. Calculates the total worked minutes.
-6. Compares worked minutes against required minutes.
-7. Calculates the difference.
-8. Determines whether the required time was completed.
-9. Stores the calculated result in the attendance record.
-
-Example response:
-
-```json
-{
-  "id": 4,
-  "userId": 2,
-  "employeeName": "Second Employee",
-  "employeeEmail": "second.employee@example.com",
-  "workDate": "2026-09-06",
-  "checkInTime": "2026-09-06T12:39:49.1093306",
-  "checkOutTime": "2026-09-06T12:41:33.1709239",
-  "workedMinutes": 1,
-  "requiredMinutes": 480,
-  "differenceMinutes": -479,
-  "status": "INCOMPLETE"
-}
-```
-
-### Attendance History
-
-```http
-GET /api/attendance/history
-```
-
-Header:
-
-```http
-Authorization: Bearer <JWT_TOKEN>
-```
-
-Returns attendance records belonging to the currently authenticated user, ordered from newest to oldest.
-
-The endpoint does not accept an employee ID from the client. This prevents an employee from changing a URL parameter to retrieve another employee's attendance history.
-
-## Work Schedules
-
-Work schedule management requires the `ADMIN` role.
-
-### Create or Update Work Schedule
+### Create or update schedule (ADMIN)
 
 ```http
 POST /api/work-schedules
-```
-
-Header:
-
-```http
 Authorization: Bearer <ADMIN_JWT_TOKEN>
+Content-Type: application/json
 ```
-
-Example request:
 
 ```json
 {
@@ -308,422 +221,370 @@ Example request:
 }
 ```
 
-Example response:
+### Check in or check out
+
+```http
+POST /api/attendance/check-in
+Authorization: Bearer <EMPLOYEE_JWT_TOKEN>
+```
+
+```http
+POST /api/attendance/check-out
+Authorization: Bearer <EMPLOYEE_JWT_TOKEN>
+```
+
+Neither operation requires a request body.
+
+### Submit annual leave (EMPLOYEE)
+
+```http
+POST /api/leave-requests
+Authorization: Bearer <EMPLOYEE_JWT_TOKEN>
+Content-Type: application/json
+```
 
 ```json
 {
-  "id": 1,
-  "userId": 2,
-  "employeeName": "Second Employee",
-  "employeeEmail": "second.employee@example.com",
-  "requiredMinutes": 480
+  "startDate": "2028-09-04",
+  "endDate": "2028-09-08",
+  "reason": "Annual vacation"
 }
 ```
 
-### Get Employee Work Schedule
+A valid request is created with `PENDING` status and reserves the applicable working days.
+
+### Approve or reject leave (MANAGER)
 
 ```http
-GET /api/work-schedules/user/{userId}
+PUT /api/manager/leave-requests/7/approve
+Authorization: Bearer <MANAGER_JWT_TOKEN>
+Content-Type: application/json
 ```
 
-Header:
+```json
+{
+  "comment": "Approved"
+}
+```
+
+Use `/reject` instead of `/approve` to reject a pending request.
+
+### Retrieve personal leave balance (EMPLOYEE)
 
 ```http
-Authorization: Bearer <ADMIN_JWT_TOKEN>
+GET /api/leave-balances/my?year=2028
+Authorization: Bearer <EMPLOYEE_JWT_TOKEN>
 ```
+
+Example response from development testing:
+
+```json
+{
+  "employeeId": 2,
+  "leaveYear": 2028,
+  "annualAllowance": 30,
+  "carriedOverDays": 0,
+  "totalEntitlement": 30,
+  "approvedDays": 5,
+  "pendingDays": 0,
+  "remainingDays": 25
+}
+```
+
+Actual values vary by employee and year.
 
 ## Attendance Calculation
 
-Worked time is calculated when an employee checks out.
-
-Conceptually:
+Worked time is calculated on checkout:
 
 ```text
 workedMinutes = checkOutTime - checkInTime
+
 differenceMinutes = workedMinutes - requiredMinutes
 ```
 
-If:
+If `workedMinutes >= requiredMinutes`, the status is `COMPLETED`; otherwise, it is `INCOMPLETE`.
+
+The calculated values are persisted on the attendance record, so historical results remain unchanged after later work schedule updates.
+
+## Annual Leave Calculation
+
+The development policy currently uses a default annual allowance of **30 working days**. Saturdays and Sundays are excluded; public holidays are not automatically excluded.
+
+Pending and approved requests count against the remaining balance. Rejected and cancelled requests do not count.
 
 ```text
-workedMinutes >= requiredMinutes
+totalEntitlement = annualAllowance + carriedOverDays
+remainingDays = totalEntitlement - approvedDays - pendingDays
 ```
 
-the status is:
-
-```text
-COMPLETED
-```
-
-Otherwise:
-
-```text
-INCOMPLETE
-```
-
-Example:
-
-```text
-Worked:       500 minutes
-Required:     480 minutes
-Difference:    20 minutes
-Status:       COMPLETED
-```
-
-Or:
-
-```text
-Worked:         1 minute
-Required:     480 minutes
-Difference:  -479 minutes
-Status:       INCOMPLETE
-```
-
-The calculated values are stored with the attendance record at checkout time.
-
-This preserves historical accuracy. If an administrator changes an employee's work schedule later, previously completed attendance records retain the requirement and result that applied at the time of checkout.
-
-## Error Handling
-
-The application uses custom exception handling for attendance business rules.
-
-### Duplicate Check-In
-
-```http
-409 Conflict
-```
-
-Example:
-
-```json
-{
-  "status": 409,
-  "message": "Employee is already checked in"
-}
-```
-
-### Check-Out Without Active Check-In
-
-```http
-409 Conflict
-```
-
-Example:
-
-```json
-{
-  "status": 409,
-  "message": "Employee is not currently checked in"
-}
-```
-
-### Missing Resource
-
-Missing required resources can return:
-
-```http
-404 Not Found
-```
-
-### Authentication and Authorization
-
-A request to a protected endpoint without a valid JWT returns:
-
-```http
-401 Unauthorized
-```
-
-A valid authenticated user without the required role receives:
-
-```http
-403 Forbidden
-```
-
-For example:
-
-```text
-EMPLOYEE token → work schedule endpoint → 403 Forbidden
-ADMIN token    → work schedule endpoint → allowed
-```
-
-## Inactive Accounts
-
-The `users` table contains an `active` field.
-
-When:
-
-```text
-active = true
-```
-
-the user can authenticate normally.
-
-When:
-
-```text
-active = false
-```
-
-login is rejected.
-
-The system also checks the current account state when validating a JWT.
-
-Therefore, if:
-
-1. A user logs in while active.
-2. A JWT is issued.
-3. An administrator later disables the user.
-
-The previously issued token will no longer be accepted for protected requests.
+Cross-year requests are counted separately for each affected year. Requests that overlap other pending/approved leave or exceed the available balance are rejected.
 
 ## Database
 
-The project uses Microsoft SQL Server.
+The main application schema contains six tables:
 
-Development database:
+| Table | Purpose |
+| --- | --- |
+| `users` | User accounts, roles, and manager relationships |
+| `work_schedules` | Working-minute requirements |
+| `attendance` | Check-ins, check-outs, and calculated attendance |
+| `leave_requests` | Requests and manager decisions |
+| `leave_balances` | Employee leave entitlements by year |
+| `email_notifications` | Transactional email notification outbox |
 
-```text
-AttendanceDB
+### Database Relationship Diagram
+
+The following diagram documents the foreign-key relationships defined in Flyway's initial schema migration.
+
+```mermaid
+erDiagram
+    users {
+        BIGINT id PK
+        VARCHAR name
+        VARCHAR email UK
+        VARCHAR password
+        VARCHAR role
+        BIT active
+        BIGINT manager_id FK
+    }
+
+    work_schedules {
+        BIGINT id PK
+        BIGINT user_id FK
+        INT required_minutes
+    }
+
+    attendance {
+        BIGINT id PK
+        BIGINT user_id FK
+        DATE work_date
+        DATETIME check_in_time
+        DATETIME check_out_time
+        BIGINT worked_minutes
+        INT required_minutes
+        BIGINT difference_minutes
+        VARCHAR status
+    }
+
+    leave_requests {
+        BIGINT id PK
+        BIGINT employee_id FK
+        BIGINT manager_id FK
+        DATE start_date
+        DATE end_date
+        VARCHAR reason
+        VARCHAR status
+        DATETIME created_at
+        DATETIME reviewed_at
+        VARCHAR manager_comment
+        BIGINT version
+    }
+
+    leave_balances {
+        BIGINT id PK
+        BIGINT employee_id FK
+        INT leave_year
+        INT annual_allowance
+        INT carried_over_days
+        BIGINT version
+    }
+
+    email_notifications {
+        BIGINT id PK
+        VARCHAR event_key UK
+        VARCHAR recipient_email
+        VARCHAR subject
+        VARCHAR status
+        INT attempt_count
+        DATETIME created_at
+        DATETIME next_attempt_at
+        DATETIME sent_at
+    }
+
+    users o|--o{ users : manages
+    users ||--o| work_schedules : has
+    users ||--o{ attendance : records
+    users ||--o{ leave_requests : submits
+    users ||--o{ leave_requests : reviews
+    users ||--o{ leave_balances : owns
 ```
 
-Main tables:
+A user may have one assigned manager, and a manager may oversee many users. A user has at most one work schedule and may have many attendance records, leave requests, and year-specific balances. Each leave request references both an employee and a manager.
+
+`email_notifications` has no foreign-key relationship to the other application tables; its unique `event_key` identifies the business event for deduplication.
+
+A unique constraint on `(employee_id, leave_year)` prevents duplicate annual balances. Flyway also creates and maintains `flyway_schema_history`, which is not part of the application domain diagram.
+
+### Database Migrations
+
+Flyway migrations live in `src/main/resources/db/migration/`:
 
 ```text
-users
-work_schedules
-attendance
+V1__initial_schema.sql
+V2__prevent_duplicate_open_attendance.sql
 ```
 
-The attendance table stores information including:
+- V1 creates the initial application schema for a new database.
+- V2 adds a filtered unique index, ensuring that each user has at most one attendance row whose `check_out_time` is `NULL`.
 
-```text
-id
-user_id
-work_date
-check_in_time
-check_out_time
-worked_minutes
-required_minutes
-difference_minutes
-status
-```
+The original development database was baselined at version 1; new empty databases execute migrations normally.
 
-## Database and JWT Configuration
-
-Sensitive configuration values are provided through environment variables.
-
-Required variables:
-
-```text
-DB_USERNAME
-DB_PASSWORD
-JWT_SECRET
-```
-
-Example `application.properties`:
+Hibernate configuration uses:
 
 ```properties
-spring.application.name=attendance
-
-spring.datasource.url=jdbc:sqlserver://localhost:1433;databaseName=AttendanceDB;encrypt=true;trustServerCertificate=true
-spring.datasource.username=${DB_USERNAME}
-spring.datasource.password=${DB_PASSWORD}
-
-spring.datasource.driver-class-name=com.microsoft.sqlserver.jdbc.SQLServerDriver
-
-spring.jpa.hibernate.ddl-auto=update
-spring.jpa.show-sql=true
-spring.jpa.properties.hibernate.format_sql=true
-
-jwt.secret=${JWT_SECRET}
-jwt.expiration=86400000
+spring.jpa.hibernate.ddl-auto=validate
 ```
 
-No real database password or JWT signing secret should be committed to source control.
+Hibernate verifies the schema instead of changing it automatically. Flyway owns schema migrations.
 
-## Running the Application
+## Local Setup
 
-### Requirements
-
-Make sure the following are available:
+### Prerequisites
 
 - Java 21
-- Microsoft SQL Server
-- `AttendanceDB` database
-- Maven or the included Maven Wrapper
+- Microsoft SQL Server accessible on `localhost:1433`
+- Git
+- Maven Wrapper (included)
+- Mailpit for local email testing
+- IntelliJ IDEA or another Java IDE
+- Postman for API testing
 
-Set the following environment variables:
+### Clone repository
 
-```text
-DB_USERNAME
-DB_PASSWORD
-JWT_SECRET
+```bash
+git clone https://github.com/IsamAlbourai/employee-attendance-management-system.git
+cd employee-attendance-management-system
 ```
 
-Then run the project through IntelliJ IDEA or use the Maven Wrapper.
+### Create the database
 
-### Windows
+Connect to SQL Server and create the empty database:
+
+```sql
+IF DB_ID(N'AttendanceDB') IS NULL
+BEGIN
+    CREATE DATABASE AttendanceDB;
+END;
+```
+
+For a **new empty database**, allow Flyway to create the tables on startup. Do not manually execute the V1 migration against an already populated database.
+
+### Set environment variables
+
+Provide `DB_USERNAME`, `DB_PASSWORD`, and `JWT_SECRET`. For example, in Windows PowerShell:
+
+```powershell
+$env:DB_USERNAME="YOUR_DATABASE_USERNAME"
+$env:DB_PASSWORD="YOUR_DATABASE_PASSWORD"
+$env:JWT_SECRET="YOUR_EXISTING_SECURE_JWT_SECRET"
+```
+
+Do not commit real database passwords or JWT secrets to source control. Environment variables set in a terminal apply to that terminal process and child processes.
+
+### Start local email testing
+
+Start Mailpit with the installed executable. By default, SMTP listens on `localhost:1025` and the web dashboard is available at `http://localhost:8025`.
+
+### Start Spring Boot
+
+Windows:
 
 ```powershell
 .\mvnw.cmd spring-boot:run
 ```
 
-### Other Environments
+macOS/Linux:
 
 ```bash
 ./mvnw spring-boot:run
 ```
 
-By default, the application runs at:
+Alternatively, launch the Spring Boot application in IntelliJ with the required environment variables configured. By default, the API runs at `http://localhost:8080`.
 
-```text
-http://localhost:8080
-```
+### Provision roles
+
+Public registration creates `EMPLOYEE` accounts. Manager and administrator users require an authorized provisioning/setup process; public registration does not grant elevated roles.
+
+An employee must have an appropriate assigned manager for manager-reviewed leave workflows.
+
+## Email Notification Outbox
+
+Business services create notification events in `email_notifications`. Scheduled processing claims eligible events, sends mail through SMTP, records delivery outcomes, and retries eligible failures. Unique event keys prevent duplicate outbox records for the same event.
+
+The outbox supports reliable, retryable delivery. It does **not** guarantee exactly-once delivery to an external recipient if a delivery succeeds but its acknowledgment is interrupted.
+
+## Concurrency Protection
+
+Attendance operations use transactional employee-row locks. SQL Server also enforces one open attendance session per user using a filtered unique index on `attendance(user_id)` for records with `check_out_time IS NULL`.
+
+Leave submission transactions similarly coordinate against the employee record, checking overlap and remaining entitlement before saving a new request.
+
+Manual concurrent-request tests against SQL Server verified:
+
+- Two simultaneous check-ins: one success, one conflict, and one open session.
+- Two simultaneous check-outs: one success, one conflict, and one notification event.
+- Two simultaneous overlapping leave requests: one `201 Created`, one `409 Conflict`, one saved request, and one notification event.
+- Approving that leave request moved five days from pending to approved without reducing the remaining balance twice.
+
+## Error Handling
+
+The API returns appropriate HTTP status codes for common failures:
+
+| Status | Meaning |
+| --- | --- |
+| `400 Bad Request` | Invalid arguments or validation errors |
+| `401 Unauthorized` | Authentication failure or missing authentication |
+| `403 Forbidden` | Valid user lacks permission |
+| `404 Not Found` | Resource does not exist |
+| `409 Conflict` | Business-rule conflict |
+
+Examples include reversed leave date ranges (`400`), duplicate check-ins (`409`), insufficient leave balance (`409`), and employee access to a manager-only endpoint (`403`).
 
 ## Testing
 
-The project contains automated tests using:
+The most recently verified complete Maven test run passed **92 automated tests**.
 
-- JUnit
-- Mockito
-- Spring MockMvc
+Tests cover authentication, JWT validation, security restrictions, attendance services, leave requests and balances, manager reporting, notification behavior, database locking invocations, and exception handling. Real-database concurrency scenarios were additionally verified with Postman/PowerShell and SQL Server Management Studio.
 
-The automated test suite covers:
-
-- Successful employee check-in
-- Duplicate check-in rejection
-- Worked-time calculation
-- Required-time comparison
-- Attendance status calculation
-- JWT generation
-- JWT username extraction
-- JWT validation
-- JWT rejection for a different user
-- JWT rejection for an inactive user
-- Login token generation
-- Unauthenticated endpoint rejection
-- Employee role rejection from admin endpoints
-- Administrator access to admin endpoints
-- Spring application context startup
-
-The current automated suite contains 13 passing tests.
-
-Run the full suite with the required environment variables configured.
-
-### Windows PowerShell
+Run the tests with the required environment variables set:
 
 ```powershell
-$env:DB_USERNAME="YOUR_DATABASE_USERNAME"
-$env:DB_PASSWORD="YOUR_DATABASE_PASSWORD"
-$env:JWT_SECRET="YOUR_JWT_SECRET"
-
-.\mvnw.cmd test
+.\mvnw.cmd clean test
 ```
 
-The API has also been manually tested using Postman for:
+### Postman Collection
 
-- Registration
-- JWT login
-- Protected requests with Bearer tokens
-- Requests without tokens
-- Employee authorization
-- Admin authorization
-- Inactive account login protection
-- Work schedule creation/update
-- Check-in
-- Duplicate check-in
-- Check-out
-- Check-out without an active check-in
-- Attendance calculations
-- Attendance history
+An importable Postman collection is included in the project documentation workflow. It contains **18 requests** organized into authentication, administration, attendance, leave, manager decisions, and attendance reporting folders.
 
-## Security
+Use a separate local Postman environment for account credentials and JWT tokens. **Never commit an exported environment containing live passwords or tokens.**
 
-The application currently implements:
+## Security and Deployment Notes
 
-- BCrypt password hashing
-- JWT-based authentication
-- Signed JWT tokens
-- Token expiration
-- Stateless Spring Security configuration
-- Bearer token authentication filter
-- `EMPLOYEE` and `ADMIN` role authorization
-- Protected attendance endpoints
-- Admin-only work schedule management
-- Inactive account protection
-- Rejection of JWTs belonging to disabled accounts
-- Generic invalid-login behavior
-- Environment-based database credentials
-- Environment-based JWT signing secret
+The application implements BCrypt hashing, stateless JWTs, role-specific authorization, disabled-account checks, and environment-based secrets.
 
-The security configuration uses:
+This repository is configured for development and demonstration, not a hardened production deployment. The local SQL Server connection trusts the database server certificate, and local SMTP uses Mailpit. A production deployment should configure validated TLS certificates, dedicated application profiles, least-privilege database users, appropriate secret management, audit logging, monitoring, and additional security review.
 
-```text
-SessionCreationPolicy.STATELESS
-```
+## Scope and Limitations
 
-so authentication state is not stored in an HTTP session.
+- Backend API only; no frontend is included.
+- Annual leave defaults to 30 working days.
+- Saturdays and Sundays are excluded; public holidays are not automatically accounted for.
+- No dedicated API is provided to administer leave policy allowances.
+- Attendance history and reports do not currently provide pagination.
+- Refresh-token management and JWT revocation are not implemented.
+- Local Mailpit is intended for development, not external production email delivery.
 
-## CSRF
+## Potential Future Improvements
 
-CSRF protection is currently disabled.
+- OpenAPI/Swagger documentation
+- Configurable leave policies and public holiday calendars
+- Audit logging and application monitoring
+- Pagination for large reporting datasets
+- JWT refresh/revocation support
+- Production profiles and deployment automation
+- Optional employee/manager frontend
 
-For this project, authenticated requests use JWT Bearer tokens in the `Authorization` header rather than session cookies.
+## Project Purpose
 
-This configuration is suitable for the current REST API and Postman-based technical-assessment environment.
-
-If the authentication architecture is changed in the future, particularly if tokens are stored and automatically submitted through browser cookies, the CSRF strategy should be reviewed accordingly.
-
-## Development and Production Notes
-
-This project is currently configured for development and technical-assessment use.
-
-Hibernate uses:
-
-```properties
-spring.jpa.hibernate.ddl-auto=update
-```
-
-This is convenient during development because Hibernate can update the database schema automatically.
-
-For production, schema changes should instead be managed using a migration tool such as:
-
-- Flyway
-- Liquibase
-
-Additional production improvements could include shorter-lived access tokens, refresh tokens, token revocation, structured logging, and dedicated application profiles.
-
-## Possible Future Improvements
-
-Potential future improvements include:
-
-- Flyway or Liquibase database migrations
-- OpenAPI / Swagger documentation
-- Refresh tokens
-- JWT revocation or token blacklisting
-- Additional integration tests
-- Pagination for large attendance histories
-- Admin attendance reporting
-- Date-based attendance filtering
-- Dedicated enum types for roles and attendance status
-- Production environment profiles
-- Centralized audit logging
-
-## Purpose
-
-This project was developed as a backend learning and technical-assessment project demonstrating practical use of:
-
-- Java
-- Spring Boot
-- REST APIs
-- Spring Security
-- JWT authentication
-- Authentication and authorization
-- Role-based access control
-- JPA/Hibernate
-- SQL Server
-- DTOs
-- Service and repository layers
-- Exception handling
-- Unit testing
-- Security integration testing
+This project demonstrates practical Java and Spring Boot backend engineering, including REST API design, JWT authentication, role-based authorization, relational database modeling, transactional business operations, reliable email processing, concurrency protection, and automated testing.
