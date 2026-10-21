@@ -1,3 +1,4 @@
+
 package com.example.attendance.exception;
 
 import org.springframework.http.HttpStatus;
@@ -20,11 +21,11 @@ public class GlobalExceptionHandler {
 
         Map<String, Object> response = new HashMap<>();
 
-        response.put("status", HttpStatus.CONFLICT.value());
+        response.put("status", HttpStatus.BAD_REQUEST.value());
         response.put("message", exception.getMessage());
 
         return ResponseEntity
-                .status(HttpStatus.CONFLICT)
+                .status(HttpStatus.BAD_REQUEST)
                 .body(response);
     }
 
@@ -54,6 +55,7 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.BAD_REQUEST)
                 .body(response);
     }
+
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<Map<String, Object>> handleAuthenticationException(
             AuthenticationException exception
